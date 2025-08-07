@@ -1,160 +1,138 @@
 # threat-hunting-scenario4-Dropbox-
 # Official [Cyber Range](http://joshmadakor.tech/cyber-range) Project
 
-<img width="400" src="https://github.com/user-attachments/assets/44bac428-01bb-4fe9-9d85-96cba7698bee" alt="Tor Logo with the onion and a crosshair on it"/>
+<img width="1600" height="623" alt="image" src="https://github.com/user-attachments/assets/6c3adb9b-1248-42a7-8eb7-2b7dfbaea4e5" />
 
-# Threat Hunt Report: Unauthorized TOR Usage
+
+# Threat Hunt Report: DropBox Data Exfiltration
 - [Scenario Creation](https://github.com/cyberpropirate/threat-hunting-scenario4-Dropbox-/blob/main/threat-hunting-scenario-dropbox-event-creation.md)
 
 ## Platforms and Languages Leveraged
 - Windows 10 Virtual Machines (Microsoft Azure)
 - EDR Platform: Microsoft Defender for Endpoint
 - Kusto Query Language (KQL)
-- Tor Browser
+  
 
 ##  Scenario
 
-Management suspects that some employees may be using TOR browsers to bypass network security controls because recent network logs show unusual encrypted traffic patterns and connections to known TOR entry nodes. Additionally, there have been anonymous reports of employees discussing ways to access restricted sites during work hours. The goal is to detect any TOR usage and analyze related security incidents to mitigate potential risks. If any use of TOR is found, notify management.
+A recent cybersecurity bulletin from CISA warned of adversaries leveraging Python-based tools to exfiltrate data to cloud storage providers, particularly Dropbox, under the guise of legitimate script automation. Management has directed the threat hunting team to investigate any unusual Python installations and outbound activity related to Dropbox API usage to detect potential data leakage or command-and-control staging from developer systems.
 
-### High-Level TOR-Related IoC Discovery Plan
+### High-Level DropBox Exfiltration IoC Discovery Plan
 
-- **Check `DeviceFileEvents`** for any `tor(.exe)` or `firefox(.exe)` file events.
-- **Check `DeviceProcessEvents`** for any signs of installation or usage.
-- **Check `DeviceNetworkEvents`** for any signs of outgoing connections over known TOR ports.
+- **Check `DeviceProcessEvents`** to confirm installation and usage of Python and the Dropbox upload script.
+- **Check `DeviceFileEvents`** to detect the creation of artifacts such as upload session logs that stimulate evidence of exfiltration
+
 
 ---
 
 ## Steps Taken
 
-### 1. Searched the `DeviceFileEvents` Table
+### 1. Searched the `DeviceProcessEvents` Table
 
-Searched for any file that had the string "tor" in it and discovered what looks like the user "employee" downloaded a TOR installer, did something that resulted in many TOR-related files being copied to the desktop, and the creation of a file called `tor-shopping-list.txt` on the desktop at `2024-11-08T22:27:19.7259964Z`. These events began at `2024-11-08T22:14:48.6065231Z`.
+At `2025-08-07T17:02:07.3203107Z`, user "ecorp" executed the file `python-3.12.0-amd64.exe` from the Downloads folder. This action marked the start of the suspicious activity and was detected using DeviceProcessEvents.
+
 
 **Query used to locate events:**
 
 ```kql
-DeviceFileEvents  
-| where DeviceName == "threat-hunt-lab"  
-| where InitiatingProcessAccountName == "employee"  
-| where FileName contains "tor"  
-| where Timestamp >= datetime(2024-11-08T22:14:48.6065231Z)  
-| order by Timestamp desc  
-| project Timestamp, DeviceName, ActionType, FileName, FolderPath, SHA256, Account = InitiatingProcessAccountName
+DeviceProcessEvents
+| where FileName == "python-3.12.0-amd64.exe"
+| where DeviceName == "dropboxmb"
+| project Timestamp, DeviceName, AccountName, FileName, ProcessCommandLine
+
 ```
-<img width="1212" alt="image" src="https://github.com/user-attachments/assets/71402e84-8767-44f8-908c-1805be31122d">
+<img width="2311" height="1454" alt="{855D8706-ABED-4D50-A38C-E96F6968BD33}" src="https://github.com/user-attachments/assets/aef49fc9-0d87-4511-9d25-ba2092c74344" />
+
 
 ---
 
 ### 2. Searched the `DeviceProcessEvents` Table
+  
+  At `2025-08-07T17:02:06.6976866Z`, user "ecorp" executed the Python installer silently via Command Prompt and at `2025-08-07T17:02:27.4148345Z` ran a Python-based Dropbox upload script using python.exe.
 
-Searched for any `ProcessCommandLine` that contained the string "tor-browser-windows-x86_64-portable-14.0.1.exe". Based on the logs returned, at `2024-11-08T22:16:47.4484567Z`, an employee on the "threat-hunt-lab" device ran the file `tor-browser-windows-x86_64-portable-14.0.1.exe` from their Downloads folder, using a command that triggered a silent installation.
+
 
 **Query used to locate event:**
 
 ```kql
+DeviceProcessEvents
+| where DeviceName == "dropboxmb"
+| where FileName has_any("python-3.12.0-amd64.exe", "python.exe")
+| project Timestamp, DeviceName, AccountName, FileName, FolderPath, ProcessCommandLine
 
-DeviceProcessEvents  
-| where DeviceName == "threat-hunt-lab"  
-| where ProcessCommandLine contains "tor-browser-windows-x86_64-portable-14.0.1.exe"  
-| project Timestamp, DeviceName, AccountName, ActionType, FileName, FolderPath, SHA256, ProcessCommandLine
+
 ```
-<img width="1212" alt="image" src="https://github.com/user-attachments/assets/b07ac4b4-9cb3-4834-8fac-9f5f29709d78">
+<img width="2306" height="1406" alt="{B8A96319-F106-4E53-870B-0878CCD8E0F9}" src="https://github.com/user-attachments/assets/6b5d5cca-d6fc-4aed-a38d-b2f2d01cc5fa" />
 
 ---
 
-### 3. Searched the `DeviceProcessEvents` Table for TOR Browser Execution
+### 3. Searched the `DeviceFileEvents` Table 
 
-Searched for any indication that user "employee" actually opened the TOR browser. There was evidence that they did open it at `2024-11-08T22:17:21.6357935Z`. There were several other instances of `firefox.exe` (TOR) as well as `tor.exe` spawned afterwards.
+At `2025-08-07T17:05:03.8718392Z` the file `dropbox-session-log.txt` was created to simulate session logging of the upload operation.
+
 
 **Query used to locate events:**
 
 ```kql
-DeviceProcessEvents  
-| where DeviceName == "threat-hunt-lab"  
-| where FileName has_any ("tor.exe", "firefox.exe", "tor-browser.exe")  
-| project Timestamp, DeviceName, AccountName, ActionType, FileName, FolderPath, SHA256, ProcessCommandLine  
-| order by Timestamp desc
+DeviceFileEvents
+| where FileName == "dropbox-session-log.txt"
+| where ActionType == "FileCreated"
+| where DeviceName == "dropboxmb"
+| project Timestamp, DeviceName, FileName, FolderPath, ActionType
+
 ```
-<img width="1212" alt="image" src="https://github.com/user-attachments/assets/b13707ae-8c2d-4081-a381-2b521d3a0d8f">
+<img width="2360" height="1437" alt="{0ED5EEF4-28DF-4B65-9C23-30ED43904862}" src="https://github.com/user-attachments/assets/8da786eb-f280-4d40-b60d-cf443a63ae7a" />
 
 ---
 
-### 4. Searched the `DeviceNetworkEvents` Table for TOR Network Connections
 
-Searched for any indication the TOR browser was used to establish a connection using any of the known TOR ports. At `2024-11-08T22:18:01.1246358Z`, an employee on the "threat-hunt-lab" device successfully established a connection to the remote IP address `176.198.159.33` on port `9001`. The connection was initiated by the process `tor.exe`, located in the folder `c:\users\employee\desktop\tor browser\browser\torbrowser\tor\tor.exe`. There were a couple of other connections to sites over port `443`.
-
-**Query used to locate events:**
-
-```kql
-DeviceNetworkEvents  
-| where DeviceName == "threat-hunt-lab"  
-| where InitiatingProcessAccountName != "system"  
-| where InitiatingProcessFileName in ("tor.exe", "firefox.exe")  
-| where RemotePort in ("9001", "9030", "9040", "9050", "9051", "9150", "80", "443")  
-| project Timestamp, DeviceName, InitiatingProcessAccountName, ActionType, RemoteIP, RemotePort, RemoteUrl, InitiatingProcessFileName, InitiatingProcessFolderPath  
-| order by Timestamp desc
-```
-<img width="1212" alt="image" src="https://github.com/user-attachments/assets/87a02b5b-7d12-4f53-9255-f5e750d0e3cb">
 
 ---
 
 ## Chronological Event Timeline 
 
-### 1. File Download - TOR Installer
+### 1. Process Execution - Python Installer Launched
 
-- **Timestamp:** `2024-11-08T22:14:48.6065231Z`
-- **Event:** The user "employee" downloaded a file named `tor-browser-windows-x86_64-portable-14.0.1.exe` to the Downloads folder.
-- **Action:** File download detected.
-- **File Path:** `C:\Users\employee\Downloads\tor-browser-windows-x86_64-portable-14.0.1.exe`
+- **Timestamp:** `2025-08-07T17:02:06.6976866Z`
+- **Event:** User `ecorp` initiated the Python installer `python-3.12.0-amd64.exe` via Command Prompt, indicating the beginning of the suspicious behavior.
+- **Action:** Process Execution detected.
+- **File Path:** ` C:\Users\ecorp\Downloads\python-3.12.0-amd64.exe`
 
-### 2. Process Execution - TOR Browser Installation
+### 2. Process Execution - Python Installater Execution
 
-- **Timestamp:** `2024-11-08T22:16:47.4484567Z`
-- **Event:** The user "employee" executed the file `tor-browser-windows-x86_64-portable-14.0.1.exe` in silent mode, initiating a background installation of the TOR Browser.
-- **Action:** Process creation detected.
+- **Timestamp:** `2025-08-07T17:02:07.3203107Z`
+- **Event:** The Python executable was formally run on the system from the Downloads folder.
+- **Action:** Process execution detected.
 - **Command:** `tor-browser-windows-x86_64-portable-14.0.1.exe /S`
-- **File Path:** `C:\Users\employee\Downloads\tor-browser-windows-x86_64-portable-14.0.1.exe`
+- **File Path:** `C:\Users\ecorp\Downloads\python-3.12.0-amd64.exe`
 
-### 3. Process Execution - TOR Browser Launch
+### 3. Script Execution - Python DropBox Upload Script
 
-- **Timestamp:** `2024-11-08T22:17:21.6357935Z`
-- **Event:** User "employee" opened the TOR browser. Subsequent processes associated with TOR browser, such as `firefox.exe` and `tor.exe`, were also created, indicating that the browser launched successfully.
-- **Action:** Process creation of TOR browser-related executables detected.
-- **File Path:** `C:\Users\employee\Desktop\Tor Browser\Browser\TorBrowser\Tor\tor.exe`
+- **Timestamp:** `2025-08-07T17:02:27.4148345Z`
+- **Event:** A Python script (likely updown.py) was executed using python.exe, simulating data exfiltration to Dropbox.
+- **Action:** Script execution detected.
+- **File Path:** `C:\Users\ecorp\AppData\Local\Programs\Python\Python312\python.exe`
 
-### 4. Network Connection - TOR Network
+### 4. File Creation - DropBox Session Log File
 
-- **Timestamp:** `2024-11-08T22:18:01.1246358Z`
-- **Event:** A network connection to IP `176.198.159.33` on port `9001` by user "employee" was established using `tor.exe`, confirming TOR browser network activity.
-- **Action:** Connection success.
-- **Process:** `tor.exe`
-- **File Path:** `c:\users\employee\desktop\tor browser\browser\torbrowser\tor\tor.exe`
+- **Timestamp:** `2025-08-07T17:05:03.8718392Z`
+- **Event:** A file named `dropbox-session-log.txt` was created on disk, simulating a log of Dropbox activity.
+- **Action:** FIle Creation Detected.
+- **File Path:** `C:\Users\ecorp\Desktop\dropbox-session-log.txt`
 
-### 5. Additional Network Connections - TOR Browser Activity
-
-- **Timestamps:**
-  - `2024-11-08T22:18:08Z` - Connected to `194.164.169.85` on port `443`.
-  - `2024-11-08T22:18:16Z` - Local connection to `127.0.0.1` on port `9150`.
-- **Event:** Additional TOR network connections were established, indicating ongoing activity by user "employee" through the TOR browser.
-- **Action:** Multiple successful connections detected.
-
-### 6. File Creation - TOR Shopping List
-
-- **Timestamp:** `2024-11-08T22:27:19.7259964Z`
-- **Event:** The user "employee" created a file named `tor-shopping-list.txt` on the desktop, potentially indicating a list or notes related to their TOR browser activities.
-- **Action:** File creation detected.
-- **File Path:** `C:\Users\employee\Desktop\tor-shopping-list.txt`
 
 ---
 
 ## Summary
 
-The user "employee" on the "threat-hunt-lab" device initiated and completed the installation of the TOR browser. They proceeded to launch the browser, establish connections within the TOR network, and created various files related to TOR on their desktop, including a file named `tor-shopping-list.txt`. This sequence of activities indicates that the user actively installed, configured, and used the TOR browser, likely for anonymous browsing purposes, with possible documentation in the form of the "shopping list" file.
+During the investigation, user ecorp on the device dropboxmb executed a Python installer `python-3.12.0-amd64.exe` followed by the execution of a suspected Dropbox CLI script. This script was used to simulate uploading data using the python.exe interpreter. Subsequently, a file named `dropbox-session-log.tx`t was created, simulating session logging activity.
+
+The events were successfully captured using DeviceProcessEvents and DeviceFileEvents in Microsoft Defender for Endpoint. The activity reproduced relevant indicators of compromise (IoCs) useful for detection engineering and analyst training.
 
 ---
 
 ## Response Taken
 
-TOR usage was confirmed on the endpoint `threat-hunt-lab` by the user `employee`. The device was isolated, and the user's direct manager was notified.
+The suspicious use of Python and Dropbox-related activity was confirmed on the dropboxmb device under user ecorp. The device was isolated in the lab environment. Findings were documented, and a detection rule will be proposed for any future executions of Python scripts attempting outbound file operations. This scenario has been flagged for further purple team collaboration to build proactive detection use cases.
 
 ---
