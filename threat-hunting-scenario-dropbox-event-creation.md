@@ -34,14 +34,14 @@ DeviceProcessEvents
 | where DeviceName == "dropboxmb"
 | project Timestamp, DeviceName, AccountName, FileName, ProcessCommandLine
 kql
-Copy code
+
 // Python Script Execution (includes updown.py)
 DeviceProcessEvents
 | where DeviceName == "dropboxmb"
 | where FileName has_any("python-3.12.0-amd64.exe", "python.exe")
 | project Timestamp, DeviceName, AccountName, FileName, FolderPath, ProcessCommandLine
 kql
-Copy code
+
 // Dropbox Log File Creation
 DeviceFileEvents
 | where FileName == "dropbox-session-log.txt"
