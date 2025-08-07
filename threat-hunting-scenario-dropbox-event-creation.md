@@ -23,9 +23,6 @@
 | **Info**|https://learn.microsoft.com/en-us/defender-xdr/advanced-hunting-deviceinfo-table|
 | **Purpose**| Used to detect execution of the Python installer and script-based upload behavior using `python.exe`.|
 
-| **Parameter**       | **Description**                                                              |
-|---------------------|------------------------------------------------------------------------------|
-
 
 ---
 
